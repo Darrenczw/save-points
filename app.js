@@ -202,7 +202,7 @@ function refreshRate(id) {
 // ---------------------------------------------------------------- line map
 // A station is named after its landmark: the highest-rated main-year game, else the one with the most hours
 // that year, skipping yearly sports series so 2020 reads "The Witcher 3", not "NBA 2K21".
-const SERIES = /NBA 2K|FIFA|EA SPORTS FC|\bFC \d|PES|PRO EVOLUTION|eFootball|Madden|WWE 2K|UFC|F1/i;
+const SERIES = /NBA 2K|FIFA|EA SPORTS FC|\bFC \d|\bPES\b|PRO EVOLUTION|eFootball|Madden|WWE 2K|\bUFC\b|\bF1\b/i;
 const short = (n) => n.split(/\s+[—–-]\s+/)[0].replace(/[:\s]+(the\s+)?(definitive|complete|ultimate|deluxe|remastered|game of the year|goty)\b.*$/i, ""); // "The Witcher 3: Wild Hunt — Remastered" → "The Witcher 3: Wild Hunt"
 function landmark(Y) {
   const main = Y.games.filter((g) => g.star && !g.tried);
@@ -312,6 +312,11 @@ const day = (s) => `${+s.slice(8, 10)} ${["Jan","Feb","Mar","Apr","May","Jun","J
 
 function renderStats() {
   const S = T.map(yearStats);
+  if (!S.length) {
+    $("#stats").innerHTML = `<header class="st-top"><button class="icon-btn" data-back aria-label="Back to timeline">${ICON.back}</button><h1 id="stats-title" tabindex="-1">Stats</h1></header>
+      <p class="st-empty">No play time yet. Your first sync fills this in.</p>`;
+    return;
+  }
   if (openYear == null || !S.some((s) => s.year === openYear)) openYear = S[0]?.year;
   const total = S.reduce((n, s) => n + s.hours, 0), sports = S.reduce((n, s) => n + s.sports, 0), games = byId.size;
   const card = (s) => {
@@ -339,7 +344,7 @@ function renderStats() {
     <div class="split life" role="img" aria-label="All years: story ${pct(total - sports, total)} percent, sports ${pct(sports, total)} percent"><span style="flex:${total - sports}"></span><span style="flex:${sports}"></span></div>
     <p class="split-l life num"><span>Story ${(total - sports).toLocaleString()} h</span><span>Sports ${sports.toLocaleString()} h</span></p>
     <div class="wallet">${S.map(card).join("")}</div>
-    <p class="st-note">Hours per year are estimates up to 18 Nov 2026 (split using trophy dates). From then on, every sync records them exactly.</p>`;
+    <p class="st-note">"Sports" means yearly series (NBA 2K, FIFA / EA FC, PES, Madden, WWE 2K, UFC, F1); every other game counts as story. Hours per year are estimates up to 18 Nov 2026 (split using trophy dates). From then on, every sync records them exactly.</p>`;
 }
 function showView() {
   const stats = location.hash === "#stats";

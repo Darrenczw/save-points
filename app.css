@@ -245,7 +245,7 @@ textarea{font-family:ui-monospace,monospace;font-size:13px}
 .split{display:flex;height:8px;border-radius:99px;overflow:hidden;margin-top:12px;background:color-mix(in srgb,currentColor 18%,transparent)}
 .split span:first-child{background:currentColor}
 .split-l{display:flex;justify-content:space-between;font-size:13px;margin-top:6px}
-.life{color:var(--y2026)}.split-l.life{color:var(--text-2)}
+.life{color:var(--text)}.split-l.life{color:var(--text-2)}
 .wallet{margin-top:22px;display:flex;flex-direction:column}
 .card{position:relative;background:var(--c);color:var(--pill-ink);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
 .card + .card{margin-top:-16px}
@@ -254,7 +254,7 @@ textarea{font-family:ui-monospace,monospace;font-size:13px}
 .cy{font:900 30px/1 "Overpass",sans-serif}
 .card.open .cy{font-size:44px}
 .cm{font:800 17px/1 "Overpass",sans-serif}
-.cm .sep{margin:0 .45em}
+.cm .sep{font-family:"Figtree",system-ui,sans-serif;font-weight:700;margin:0 .4em}
 .card-body{padding:0 18px 18px}
 .fare{font:900 56px/.95 "Overpass",sans-serif;letter-spacing:-.01em}
 .fare small{font-size:19px;margin-left:6px}
@@ -271,6 +271,14 @@ textarea{font-family:ui-monospace,monospace;font-size:13px}
 .moments button{font-weight:700;text-decoration:underline;text-underline-offset:3px;text-align:right}
 .moments .when{display:block;font-weight:500;font-size:13px;opacity:.75;white-space:nowrap}
 .st-note{margin-top:22px;font-size:13px;color:var(--text-3)}
+.card :focus-visible{outline-color:var(--pill-ink)}
+.card-head:focus-visible{outline-offset:-6px;border-radius:20px}
+@media (prefers-color-scheme:light){ /* white ink on deep year colours has no room for opacity: step with weight instead */
+  .moments dt,.moments .when,.trip small,.card .split-l{opacity:1}
+  .moments dt,.moments .when,.trip small{font-weight:500}
+  .moments dd,.moments button{font-weight:800}
+}
+.st-empty{margin-top:28px;color:var(--text-2);font-size:17px}
 ::view-transition-group(*){animation-duration:.42s;animation-timing-function:var(--ease)}
 
 @media (min-width:600px){
