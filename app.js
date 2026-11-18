@@ -16,7 +16,8 @@ const CATS = [["s", "Story"], ["g", "Gameplay"], ["m", "Music"], ["a", "Atmosphe
 let T = [];               // years, newest first
 const byId = new Map();   // id -> { game (any entry), years: [{year,label,star}] }
 let ratings = load("sp.ratings", {});
-let lastSync = load("sp.lastSync", Date.now() - 2 * 60 * 1000);
+const IMPORTED_AT = Date.parse("2026-11-18T03:32:00Z"); // when data/timeline.json was imported from PSN
+let lastSync = load("sp.lastSync", IMPORTED_AT);
 
 function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
 function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
@@ -81,9 +82,8 @@ function retList(title, list, y) {
   return `<h3 class="sub">${title}</h3><div class="xfer">${first.map((g) => ret(g, y)).join("")}
     ${rest.length ? `<div class="xfer-more" hidden>${rest.map((g) => ret(g, y)).join("")}</div><button class="more" data-more>Show ${rest.length} more</button>` : ""}</div>`;
 }
-const yearLabel = (g, y) => (g.label === "Played" && !g.star ? (g.main < y ? "Played again" : "First go") : g.label);
 function ret(g, y) {
-  return `<button class="x" data-open="${g.id}">${art(g, 120)}<span class="n"><span>${esc(g.name)}</span><small class="num">${yearLabel(g, y)} · ~${hrs(g.yh)} this year</small></span>
+  return `<button class="x" data-open="${g.id}">${art(g, 120)}<span class="n"><span>${esc(g.name)}</span><small class="num">${g.label} · ~${hrs(g.yh)} this year</small></span>
     <span class="pill" style="--pc:${yc(g.main)}">${g.main}</span></button>`;
 }
 function rateBtn(g) {
@@ -99,12 +99,12 @@ function renderAnn(state, extra) {
   if (state === "syncfail") { a.classList.add("bad"); a.innerHTML = `${ICON.warn}<span>Couldn't reach PlayStation. <b>Try again</b></span>`; return; }
   if (state === "expired") { a.classList.add("bad"); a.innerHTML = `${ICON.warn}<span>PlayStation sign-in expired. <b>Reconnect</b></span>`; return; }
   if (state === "offline") { a.innerHTML = `${ICON.sync}<span>Offline · showing what you had ${ago(lastSync)}</span>`; return; }
-  a.innerHTML = `${ICON.sync}<span>Synced ${ago(lastSync)}${extra ? ` · <b>${esc(extra)}</b>` : ""}</span>`;
+  a.innerHTML = `${ICON.sync}<span>${lastSync === IMPORTED_AT ? "Imported from PlayStation" : "Synced"} ${ago(lastSync)}${extra ? ` · <b>${esc(extra)}</b>` : ""}</span>`;
 }
 
 function render() {
   $("#line").innerHTML = T.map(station).join("");
-  renderAnn(DEMO_STATE && DEMO_STATE !== "importing" ? DEMO_STATE : "idle", "NBA 2K26 +1.2 h");
+  renderAnn(DEMO_STATE && DEMO_STATE !== "importing" ? DEMO_STATE : "idle");
   observe();
 }
 
@@ -132,7 +132,7 @@ function openGame(id, focusRate = false) {
   d.innerHTML = `<div class="grab" aria-hidden="true"></div>
     <div class="g-head">${art(g, 200)}<div><h2 id="g-name">${esc(g.name)}</h2>
       <p class="num">${hrs(g.h)} · ${g.plat} · ${fmtDate(g.first)} – ${fmtDate(g.last)}</p></div></div>
-    <div class="g-years">${e.years.map((x) => `<span class="l"><span class="pill" style="--pc:${yc(x.year)}">${x.year}</span>${x.label}${x.star ? " · main year" : ""}</span>`).join("")}</div>
+    <div class="g-years">${e.years.map((x) => `<span class="l"><span class="pill" style="--pc:${yc(x.year)}">${x.year}</span>${x.label}${x.star ? ' <span aria-label="main year">★</span>' : ""}</span>`).join("")}</div>
     <div class="rates">
       ${starRow("o", "Overall", r.o, true)}
       ${CATS.map(([k, n]) => starRow(k, n, r[k])).join("")}
@@ -185,11 +185,19 @@ function refreshRate(id) {
 }
 
 // ---------------------------------------------------------------- line map
+// A station is named after its landmark: the highest-rated main-year game, else the one with the most hours
+// that year, skipping yearly sports series so 2020 reads "The Witcher 3", not "NBA 2K21".
+const SERIES = /NBA 2K|FIFA|EA SPORTS FC|\bFC \d|PES|PRO EVOLUTION|eFootball|Madden|WWE 2K|UFC|F1/i;
+function landmark(Y) {
+  const main = Y.games.filter((g) => g.star && !g.tried);
+  const rated = main.filter((g) => ratings[g.id]?.o).sort((a, b) => ratings[b.id].o - ratings[a.id].o || b.yh - a.yh);
+  return rated[0] || main.filter((g) => !SERIES.test(g.name)).sort((a, b) => b.yh - a.yh)[0] || main[0];
+}
 function openMap() {
   const here = $(".stn.here")?.dataset.year;
   const d = $("#map");
   d.innerHTML = `<h2>Line map</h2><ol>${T.map((Y) => `<li style="--c:${yc(Y.year)}"><a href="#y${Y.year}" aria-current="${String(Y.year) === here}">
-      <strong>${Y.year}</strong><small class="num">${Y.count} games<br>${Y.hours.toLocaleString()} h</small></a></li>`).join("")}</ol>`;
+      <strong>${Y.year}</strong><span class="nm"><b>${esc(landmark(Y)?.name || "")}</b><small class="num">${Y.count} games</small></span></a></li>`).join("")}</ol>`;
   d.showModal();
   d.querySelector('[aria-current="true"]')?.focus();
 }
@@ -199,9 +207,14 @@ function sync() {
   renderAnn("syncing");
   setTimeout(() => {
     lastSync = Date.now(); save("sp.lastSync", lastSync);
-    renderAnn("idle", "NBA 2K26 +1.2 h");
+    renderAnn("idle", "NBA 2K26 +1.2 h (demo)"); // prototype: the sync is simulated
     const h = $("#now-h");
-    if (h && !h.nextElementSibling) h.insertAdjacentHTML("afterend", `<span class="delta">+1.2 h</span>`);
+    if (h) {
+      h.parentElement.querySelector(".delta")?.remove();
+      const g = byId.get($(".now .cap-t").dataset.open).game; g.h += 1.2; h.textContent = hrs(g.h); // demo: hours tick up
+      h.insertAdjacentHTML("afterend", `<span class="delta">+1.2 h</span>`);
+      h.nextElementSibling.addEventListener("animationend", (e) => e.target.remove()); // settles into the plain hours
+    }
   }, 1600);
 }
 

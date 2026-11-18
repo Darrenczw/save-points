@@ -15,6 +15,7 @@ for t in played:
         'cover':img(t,'MASTER') or t['imageUrl'],'portrait':img(t,'PORTRAIT_BANNER'),'hero':img(t,'GAMEHUB_COVER_ART') or img(t,'BACKGROUND_LAYER_ART'),'logo':img(t,'LOGO')})
     g['h']+=hrs(t['playDuration']); g['first']=min(g['first'],t['firstPlayedDateTime'][:10]); g['last']=max(g['last'],t['lastPlayedDateTime'][:10])
     g['plat'].add('PS5' if 'ps5' in t['category'] else 'PS4' if 'ps4' in t['category'] else 'PS')
+today=dt.date(2026,11,18)
 def days_in(a,b,y):
     a=dt.date.fromisoformat(a); b=dt.date.fromisoformat(b); s=max(a,dt.date(y,1,1)); e=min(b,dt.date(y,12,31)); return max(0,(e-s).days+1)
 def labels(g):
@@ -43,6 +44,8 @@ def shares(g, years):
     t=sum(w.values()); return {y:w[y]/t for y in years}
 for k,g in games.items():
     main,ls=labels(g); sh=shares(g,list(ls))
+    nowg=(today-dt.date.fromisoformat(g['last'])).days<=14
+    if nowg and ls.get(today.year)=='Brief visit': ls[today.year]='Continued'  # never call what you're playing now a brief visit
     for y,l in ls.items():
         yrs[y].append({'id':k,'name':re.sub(r'\s*\[PS2 emulation\]|^Classic_|\s+PS4 & PS5$|\s*\(PlayStation5\)','',re.sub(r'[™®]','',g['name'])).replace('  ',' ').strip(),'h':round(g['h'],1),'yh':round(g['h']*sh[y],1),'label':l,'star':y==main,'tried':g['h']<1,'main':main,
           'first':g['first'],'last':g['last'],'plat':'/'.join(sorted(g['plat'])),
