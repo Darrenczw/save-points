@@ -14,3 +14,4 @@ keeper/.env
 keeper/.venv/
 keeper/profile/
 keeper/keeper.log
+keeper/launchd.log

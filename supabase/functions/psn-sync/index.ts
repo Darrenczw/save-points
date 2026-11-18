@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
 
     // 2. What we already have
     const { data: existing, error: e1 } = await admin.from("games")
-      .select("id, psn_concept_id, total_hours, first_played, last_played, np_comm_id, np_service, trophy_synced_at")
+      .select("id, psn_concept_id, total_hours, first_played, last_played, np_sets, trophy_synced_at")
       .eq("user_id", userId).eq("source", "psn");
     if (e1) throw e1;
     const ex = new Map((existing ?? []).map((g) => [g.psn_concept_id as string, g]));
@@ -88,9 +88,11 @@ Deno.serve(async (req) => {
     }
     const setUpdated = new Map(titles.map((t) => [t.npCommunicationId, t.lastUpdatedDateTime]));
 
-    const np = new Map<string, { id: string; svc: "trophy" | "trophy2" }>();
-    for (const [c, p] of ex) if (p.np_comm_id) np.set(c, { id: p.np_comm_id, svc: p.np_service });
-    const unmapped = merged.filter((g) => !np.has(g.conceptId) && !ex.get(g.conceptId)?.trophy_synced_at);
+    // A game can have several trophy lists (PS4 original + PS5 remaster): keep them all.
+    type TSet = { id: string; svc: "trophy" | "trophy2" };
+    const np = new Map<string, TSet[]>();
+    for (const [c, p] of ex) if ((p.np_sets as TSet[])?.length) np.set(c, p.np_sets as TSet[]);
+    const unmapped = merged.filter((g) => !ex.get(g.conceptId)?.trophy_synced_at);
     const conceptOfTitle = new Map(unmapped.flatMap((g) => g.titleIds.map((t) => [t, g.conceptId] as const)));
     const ids = [...conceptOfTitle.keys()];
     const batches: string[][] = [];
@@ -100,26 +102,27 @@ Deno.serve(async (req) => {
         const r = await getUserTrophiesForSpecificTitle(auth, "me", { npTitleIds: b.join(",") });
         for (const t of r.titles) {
           const tt = t.trophyTitles?.[0], c = conceptOfTitle.get(t.npTitleId);
-          if (tt && c && !np.has(c)) np.set(c, { id: tt.npCommunicationId, svc: tt.npServiceName as "trophy" | "trophy2" });
+          if (!tt || !c) continue;
+          const list = np.get(c) ?? [];
+          if (!list.some((x) => x.id === tt.npCommunicationId)) list.push({ id: tt.npCommunicationId, svc: tt.npServiceName as TSet["svc"] });
+          np.set(c, list);
         }
       } catch { /* titles without trophies */ }
     }, late);
 
     const todo = merged.filter((g) => {
-      const p = ex.get(g.conceptId), set = np.get(g.conceptId);
+      const p = ex.get(g.conceptId), sets = np.get(g.conceptId) ?? [];
       if (!p?.trophy_synced_at) return true;
-      if (!set) return false;
-      const upd = setUpdated.get(set.id);
-      return !!upd && Date.parse(upd) > Date.parse(p.trophy_synced_at);
+      return sets.some((s) => { const upd = setUpdated.get(s.id); return !!upd && Date.parse(upd) > Date.parse(p.trophy_synced_at); });
     });
     const fresh = new Map<string, Record<number, number>>();
     const finished = await inPool(todo, 6, async (g) => {
-      const set = np.get(g.conceptId), per: Record<number, number> = {};
-      if (set) {
+      const per: Record<number, number> = {};
+      for (const set of np.get(g.conceptId) ?? []) {
         try {
           const r = await getUserTrophiesEarnedForTitle(auth, "me", set.id, "all", { npServiceName: set.svc });
           for (const t of r.trophies) if (t.earned && t.earnedDateTime) { const y = +t.earnedDateTime.slice(0, 4); per[y] = (per[y] ?? 0) + 1; }
-        } catch { /* keep empty */ }
+        } catch { /* skip this list */ }
       }
       fresh.set(g.conceptId, per);
     }, late);
@@ -131,7 +134,7 @@ Deno.serve(async (req) => {
       if (rows.length) { const { error } = await admin.from("trophy_years").insert(rows); if (error) throw error; }
       const now = new Date().toISOString();
       const marked = merged.filter((g) => fresh.has(g.conceptId)).map((g) => ({
-        ...baseRow(g), np_comm_id: np.get(g.conceptId)?.id ?? null, np_service: np.get(g.conceptId)?.svc ?? null, trophy_synced_at: now,
+        ...baseRow(g), np_sets: np.get(g.conceptId) ?? [], trophy_synced_at: now,
       }));
       const { error } = await admin.from("games").upsert(marked, { onConflict: "user_id,psn_concept_id" }); if (error) throw error;
       for (const c of fresh.keys()) changed.add(c);
