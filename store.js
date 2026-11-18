@@ -12,7 +12,7 @@ const sb = demo ? null : window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY
 const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* full or blocked */ } };
 
-// ---------------------------------------------------------------- sign-in (email link; pasting it works inside the Home Screen app)
+// ---------------------------------------------------------------- sign-in: 6-digit pairing code from a signed-in device, or an email link
 export async function currentUser() {
   if (demo) return { email: "demo" };
   const { data } = await sb.auth.getSession();
@@ -28,18 +28,23 @@ export async function sendCode(email) {
   throw new Error(/signups not allowed|not found/i.test(error.message)
     ? "That email doesn't have a Save Points account." : "Couldn't send the email. Try again in a minute.");
 }
-/** Accepts the sign-in link from the email (pasted), or a 6-digit code if the email ever includes one. */
-export async function verifyCode(email, text) {
-  const t = text.trim();
-  let error;
-  if (/^\d{6}$/.test(t)) ({ error } = await sb.auth.verifyOtp({ email, token: t, type: "email" }));
-  else {
-    let hash = null;
-    try { const u = new URL(t); hash = u.searchParams.get("token") ?? u.searchParams.get("token_hash"); } catch { /* not a link */ }
-    if (!hash) throw new Error("Paste the whole link from the email (long-press it, then Copy Link).");
-    ({ error } = await sb.auth.verifyOtp({ token_hash: hash, type: "email" }));
-  }
-  if (error) throw new Error("That link didn't work. Use the newest email, or send a new link.");
+/** On a signed-in device: make a 6-digit code another device can use to sign in (5 minutes, once). */
+export async function createPairCode() {
+  const out = await call("pair", { action: "create" });
+  if (!out.code) throw new Error(out.error ?? "Couldn't make a code. Try again.");
+  return out;
+}
+/** On a new device: sign in with the code shown on a signed-in device. */
+export async function redeemPairCode(code) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/pair`, {
+    method: "POST", headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY },
+    body: JSON.stringify({ action: "redeem", code }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!out.tokenHash) throw new Error(out.error ?? "That code didn't work.");
+  let { error } = await sb.auth.verifyOtp({ token_hash: out.tokenHash, type: "email" });
+  if (error) ({ error } = await sb.auth.verifyOtp({ token_hash: out.tokenHash, type: "magiclink" }));
+  if (error) throw new Error("That code didn't work. Make a new one and try again.");
 }
 export async function signOut() { if (sb) await sb.auth.signOut(); localStorage.removeItem(CACHE); localStorage.removeItem(QUEUE); }
 

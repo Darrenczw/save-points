@@ -244,37 +244,42 @@ async function sync() {
 // ---------------------------------------------------------------- sign-in, first import, empty
 function screen(html) { $("#line").innerHTML = `<section class="boot">${html}</section>`; }
 
-function signIn(email = "") {
+function signIn() {
   document.body.classList.add("out");
-  screen(`<h1>Save Points</h1><p>Sign in with your email. We'll send you a sign-in link.</p>
+  screen(`<h1>Save Points</h1>
+    <p>Type the 6-digit code from Save Points on a device that's already signed in: <b>Settings → Sign in another device</b>.</p>
+    <form class="form" id="f-pair"><label for="pc">Code</label>
+      <input id="pc" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required>
+      <button class="go">Sign in</button><p class="err" role="alert"></p></form>
+    <button class="link" id="by-email">No other device signed in? Email me a sign-in link</button>`);
+  const f = $("#f-pair");
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const b = f.querySelector(".go"); b.disabled = true; b.textContent = "Signing in…";
+    try { await store.redeemPairCode($("#pc").value); start(); }
+    catch (e) { f.querySelector(".err").textContent = e.message; b.disabled = false; b.textContent = "Sign in"; }
+  };
+  $("#by-email").onclick = () => emailStep();
+}
+function emailStep(email = "") {
+  screen(`<h1>Sign in by email</h1><p>We'll email you a sign-in link.</p>
     <form class="form" id="f-email"><label for="em">Email</label>
       <input id="em" type="email" autocomplete="email" inputmode="email" required value="${esc(email)}">
-      <button class="go">Send link</button><p class="err" role="alert"></p></form>`);
+      <button class="go">Send link</button><p class="err" role="alert"></p></form>
+    <button class="link" id="back">I have a code</button>`);
+  $("#back").onclick = () => signIn();
   const f = $("#f-email");
   f.onsubmit = async (ev) => {
     ev.preventDefault();
     const em = $("#em").value.trim(), b = f.querySelector(".go");
     b.disabled = true; b.textContent = "Sending…";
-    try { await store.sendCode(em); codeStep(em); }
-    catch (e) { f.querySelector(".err").textContent = e.message; b.disabled = false; b.textContent = "Send link"; }
-  };
-}
-function codeStep(email) {
-  const homeScreen = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-  screen(`<h1>Check your email</h1>
-    <p>We sent a sign-in link to <b>${esc(email)}</b>.</p>
-    <p>${homeScreen ? "In Mail, <b>press and hold</b> the Sign in link, tap <b>Copy Link</b>, then paste it here." : "Click the link in the email, or copy it and paste it here."}</p>
-    <form class="form" id="f-code"><label for="cd">Sign-in link</label>
-      <input id="cd" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…" required>
-      <button class="go">Sign in</button><p class="err" role="alert"></p>
-      <button type="button" class="link" id="again">Use a different email</button></form>`);
-  $("#again").onclick = () => signIn(email);
-  const f = $("#f-code");
-  f.onsubmit = async (ev) => {
-    ev.preventDefault();
-    const b = f.querySelector(".go"); b.disabled = true; b.textContent = "Signing in…";
-    try { await store.verifyCode(email, $("#cd").value); start(); }
-    catch (e) { f.querySelector(".err").textContent = e.message; b.disabled = false; b.textContent = "Sign in"; }
+    try {
+      await store.sendCode(em);
+      screen(`<h1>Check your email</h1><p>Tap <b>Sign in</b> in the email we sent to <b>${esc(em)}</b>. It opens Save Points in your browser, signed in.</p>
+        <p>Using the Home Screen app on iPhone? After the link opens in Safari, go to <b>Settings → Sign in another device</b> there, then type that code here.</p>
+        <button class="go" id="have-code">I have a code</button>`);
+      $("#have-code").onclick = () => signIn();
+    } catch (e) { f.querySelector(".err").textContent = e.message; b.disabled = false; b.textContent = "Send link"; }
   };
 }
 function importing() {
@@ -302,6 +307,9 @@ function openMe() {
         <button class="go" data-connect>Connect</button><p class="err" role="alert"></p></details>
       ${connected ? `<button class="danger" data-disconnect>Disconnect PlayStation</button>` : ""}
     </section>
+    <section class="s-block"><h3>Sign in another device</h3>
+      <p class="quiet">Shows a 6-digit code. Type it into Save Points on your iPhone or another computer. Works once, for 5 minutes.</p>
+      <div id="pair-out"></div><button class="go" data-pair>Show a code</button></section>
     <section class="s-block"><h3>Account</h3><p>${esc(user?.email ?? "")}</p>
       <button class="link" data-signout>Sign out</button></section>
     <button class="done" data-close>Done</button>`;
@@ -325,6 +333,7 @@ document.addEventListener("click", (ev) => {
   if (t.id === "settings") return openMe();
   if (t.hasAttribute("data-sync-now")) { $("#me").close(); return sync(); }
   if (t.hasAttribute("data-connect")) return connect(t);
+  if (t.hasAttribute("data-pair")) return showPairCode(t);
   if (t.hasAttribute("data-disconnect")) return disconnect();
   if (t.hasAttribute("data-signout")) { store.signOut().then(() => { $("#me").close(); T = []; signIn(); }); return; }
   if (t.closest("#map") && t.hash) {
@@ -347,6 +356,23 @@ async function connect(btn) {
   btn.disabled = false; btn.textContent = "Connect";
   if (!out.connected) { err.textContent = out.error ?? "That didn't work. Try a fresh token."; return; }
   $("#me").close(); toast("PlayStation connected"); setLibrary(await store.fetchLibrary()); sync();
+}
+async function showPairCode(btn) {
+  btn.disabled = true; btn.textContent = "Making a code…";
+  try {
+    const { code, expiresAt } = await store.createPairCode();
+    $("#pair-out").innerHTML = `<p class="pair-code num" aria-label="Code ${code.split("").join(" ")}">${code.slice(0, 3)} ${code.slice(3)}</p>
+      <p class="quiet" id="pair-left"></p>`;
+    btn.textContent = "Make a new code";
+    clearInterval(showPairCode.t);
+    showPairCode.t = setInterval(() => {
+      const s = Math.max(0, Math.round((Date.parse(expiresAt) - Date.now()) / 1000));
+      const el = $("#pair-left"); if (!el) return clearInterval(showPairCode.t);
+      el.textContent = s ? `Expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "Expired. Make a new code.";
+      if (!s) clearInterval(showPairCode.t);
+    }, 1000);
+  } catch (e) { $("#pair-out").innerHTML = `<p class="err">${esc(e.message)}</p>`; btn.textContent = "Show a code"; }
+  btn.disabled = false;
 }
 async function disconnect() {
   if (!confirm("Disconnect PlayStation? Your games and ratings stay; hours stop updating until you reconnect.")) return;

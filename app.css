@@ -224,6 +224,7 @@ input:focus-visible,textarea:focus-visible{outline:3px solid var(--y2026);outlin
 .link{color:var(--text-2);font-size:15px;text-decoration:underline;text-underline-offset:3px;min-height:44px;text-align:left}
 .danger{color:var(--warn);font-weight:600;font-size:15px;min-height:44px;text-align:left}
 .err{color:var(--warn);font-size:14px;min-height:1em}
+.pair-code{font:900 44px/1 "Overpass",sans-serif;letter-spacing:.06em;margin:4px 0}
 .s-title{font:800 22px/1 "Overpass",sans-serif;margin-bottom:8px}
 .s-block{border-top:1px solid var(--rule);padding:14px 0;display:flex;flex-direction:column;gap:8px}
 .s-block h3{font-size:13px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em}
