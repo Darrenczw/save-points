@@ -318,7 +318,7 @@ function renderStats() {
     const open = s.year === openYear;
     return `<article class="card${open ? " open" : ""}" style="--c:${yc(s.year)};view-transition-name:card-${s.year}">
       <button class="card-head" data-card="${s.year}" aria-expanded="${open}" aria-controls="cd-${s.year}">
-        <span class="cy num">${s.year}</span><span class="cm num">${open ? `${s.games} games` : `${s.hours.toLocaleString()} h&ensp;·&ensp;${s.games} games`}</span>
+        <span class="cy num">${s.year}</span><span class="cm num">${open ? `${s.games} games` : `${s.hours.toLocaleString()} h<span class="sep" aria-hidden="true">·</span>${s.games} games`}</span>
       </button>
       <div class="card-body" id="cd-${s.year}" ${open ? "" : "hidden"}>
         <p class="fare num">${s.hours.toLocaleString()}<small>hours</small></p>

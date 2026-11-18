@@ -254,6 +254,7 @@ textarea{font-family:ui-monospace,monospace;font-size:13px}
 .cy{font:900 30px/1 "Overpass",sans-serif}
 .card.open .cy{font-size:44px}
 .cm{font:800 17px/1 "Overpass",sans-serif}
+.cm .sep{margin:0 .45em}
 .card-body{padding:0 18px 18px}
 .fare{font:900 56px/.95 "Overpass",sans-serif;letter-spacing:-.01em}
 .fare small{font-size:19px;margin-left:6px}
