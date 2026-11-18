@@ -10,3 +10,7 @@ spike/.psn-refresh
 spike/trophy-years.json
 DESIGN-BRIEF.md
 data/
+keeper/.env
+keeper/.venv/
+keeper/profile/
+keeper/keeper.log
