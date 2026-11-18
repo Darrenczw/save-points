@@ -22,7 +22,10 @@ export async function sendCode(email) {
   const { error } = await sb.auth.signInWithOtp({
     email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname },
   });
-  if (error) throw new Error(/signups not allowed|not found/i.test(error.message)
+  if (!error) return;
+  if (error.status === 429 || /rate limit/i.test(error.message))
+    throw new Error("Too many sign-in emails for now. The free plan sends 2 an hour, so try again in a little while.");
+  throw new Error(/signups not allowed|not found/i.test(error.message)
     ? "That email doesn't have a Save Points account." : "Couldn't send the email. Try again in a minute.");
 }
 /** Accepts the sign-in link from the email (pasted), or a 6-digit code if the email ever includes one. */
