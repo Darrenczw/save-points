@@ -22,6 +22,7 @@ let lastSync = load("sp.lastSync", IMPORTED_AT);
 function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
 function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 const yc = (y) => (y >= 2018 && y <= 2026 ? `var(--y${y})` : "var(--y-other)");
+const hrs1 = (h) => `${(Math.round(h * 10) / 10).toString()} h`; // exact hours on the Now playing card
 const hrs = (h) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)} h`);
 const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 
@@ -54,7 +55,7 @@ function station(Y, i) {
         <img class="art" src="${g.hero || g.cover}?w=900" alt="" fetchpriority="high">
         <span class="np">Now playing</span>
         <div class="cap"><button class="cap-t" data-open="${g.id}"><span class="t">${esc(g.name)}</span>
-          <span class="p num"><span id="now-h">${hrs(g.h)}</span> · since ${g.main}</span></button>
+          <span class="p num"><span id="now-h">${hrs1(g.h)}</span> · since ${g.main}</span></button>
           ${rateBtn(g)}</div></article>`;
       for (const g2 of now.slice(1))
         h += `<button class="also" data-open="${g2.id}">${art(g2, 120)}<span>Also playing <b>${esc(g2.name)}</b></span></button>`;
@@ -117,7 +118,9 @@ function observe() {
     const line = innerHeight * 0.25;
     let cur = stns[0];
     for (const s of stns) { if (s.getBoundingClientRect().top <= line) cur = s; else break; }
-    if (!cur.classList.contains("here")) { stns.forEach((s) => s.classList.remove("here")); cur.classList.add("here"); }
+    if (!cur.classList.contains("here")) { stns.forEach((s) => s.classList.remove("here", "stuck")); cur.classList.add("here"); }
+    const pad = parseFloat(getComputedStyle(cur).paddingTop) || 0; // stuck = the head has slid down inside its section
+    cur.classList.toggle("stuck", cur.querySelector(".head").getBoundingClientRect().top - cur.getBoundingClientRect().top > pad + 1);
   };
   addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(mark); } }, { passive: true });
   mark();
@@ -188,16 +191,19 @@ function refreshRate(id) {
 // A station is named after its landmark: the highest-rated main-year game, else the one with the most hours
 // that year, skipping yearly sports series so 2020 reads "The Witcher 3", not "NBA 2K21".
 const SERIES = /NBA 2K|FIFA|EA SPORTS FC|\bFC \d|PES|PRO EVOLUTION|eFootball|Madden|WWE 2K|UFC|F1/i;
+const short = (n) => n.split(/\s+[—–-]\s+/)[0]; // "The Witcher 3: Wild Hunt — Remastered" → "The Witcher 3: Wild Hunt"
 function landmark(Y) {
   const main = Y.games.filter((g) => g.star && !g.tried);
-  const rated = main.filter((g) => ratings[g.id]?.o).sort((a, b) => ratings[b.id].o - ratings[a.id].o || b.yh - a.yh);
-  return rated[0] || main.filter((g) => !SERIES.test(g.name)).sort((a, b) => b.yh - a.yh)[0] || main[0];
+  const pool = main.filter((g) => !SERIES.test(g.name));
+  const list = pool.length ? pool : main;
+  const r = (g) => ratings[g.id]?.o || 0;
+  return [...list].sort((a, b) => r(b) - r(a) || b.yh - a.yh)[0];
 }
 function openMap() {
   const here = $(".stn.here")?.dataset.year;
   const d = $("#map");
   d.innerHTML = `<h2>Line map</h2><ol>${T.map((Y) => `<li style="--c:${yc(Y.year)}"><a href="#y${Y.year}" aria-current="${String(Y.year) === here}">
-      <strong>${Y.year}</strong><span class="nm"><b>${esc(landmark(Y)?.name || "")}</b><small class="num">${Y.count} games</small></span></a></li>`).join("")}</ol>`;
+      <strong>${Y.year}</strong><span class="nm"><b>${esc(short(landmark(Y)?.name || ""))}</b><small class="num">${Y.count} games</small></span></a></li>`).join("")}</ol>`;
   d.showModal();
   d.querySelector('[aria-current="true"]')?.focus();
 }
@@ -211,7 +217,7 @@ function sync() {
     const h = $("#now-h");
     if (h) {
       h.parentElement.querySelector(".delta")?.remove();
-      const g = byId.get($(".now .cap-t").dataset.open).game; g.h += 1.2; h.textContent = hrs(g.h); // demo: hours tick up
+      const g = byId.get($(".now .cap-t").dataset.open).game; g.h += 1.2; h.textContent = hrs1(g.h); // demo: hours tick up
       h.insertAdjacentHTML("afterend", `<span class="delta">+1.2 h</span>`);
       h.nextElementSibling.addEventListener("animationend", (e) => e.target.remove()); // settles into the plain hours
     }

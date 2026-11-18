@@ -81,7 +81,8 @@ input,textarea{caret-color:var(--y2026)}
 
 .head{position:sticky;top:var(--safe-top);z-index:3;margin-left:calc(var(--gutter) * -1);padding:6px 0 2px var(--gutter);
   pointer-events:none}
-.head::before{content:"";position:absolute;inset:0 0 -12px calc(var(--line-x) + 14px);background:linear-gradient(var(--ground) calc(100% - 12px),var(--ground-a));z-index:-1}
+.head::before{content:"";position:absolute;inset:0 0 0 calc(var(--line-x) + 14px);background:var(--ground);z-index:-1}
+.stn.stuck .head::before{bottom:-14px;box-shadow:0 1px 0 var(--rule)}
 .head .dot{position:absolute;left:calc(var(--line-x) - 10px);top:20px;width:26px;height:26px;border-radius:50%;
   background:var(--ground);border:6px solid var(--c);transition:background .5s var(--ease)}
 .stn.here .head .dot{background:var(--c)}
@@ -91,7 +92,7 @@ input,textarea{caret-color:var(--y2026)}
 .stn.arrive .head .dot{animation:pulse .9s var(--ease)}
 @keyframes arrive{from{transform:translateY(18px);opacity:.2}}
 @keyframes pulse{0%{transform:scale(.6)}55%{transform:scale(1.25)}100%{transform:none}}
-.meta{font-size:15px;color:var(--text-2);margin-top:12px}
+.meta{font-size:15px;color:var(--text-2);margin-top:4px}
 
 /* sync announcement */
 .ann{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--text-3);margin:12px 0 16px;min-height:28px;border-radius:8px}
