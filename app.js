@@ -1,4 +1,5 @@
-// Save Points — The Line. Prototype app shell (local data, ratings in localStorage).
+// Save Points — The Line. App shell: timeline, ratings, sync, sign-in. Data lives in store.js.
+import * as store from "./store.js";
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const params = new URLSearchParams(location.search);
@@ -15,12 +16,11 @@ const CATS = [["s", "Story"], ["g", "Gameplay"], ["m", "Music"], ["a", "Atmosphe
 
 let T = [];               // years, newest first
 const byId = new Map();   // id -> { game (any entry), years: [{year,label,star}] }
-let ratings = load("sp.ratings", {});
-const IMPORTED_AT = Date.parse("2026-11-18T03:32:00Z"); // when data/timeline.json was imported from PSN
-let lastSync = load("sp.lastSync", IMPORTED_AT);
+let ratings = {};
+let link = null;          // PSN connection status from the server
+let lastExtra = "";       // e.g. "NBA 2K26 +1.2 h" after a sync
+let user = null;
 
-function load(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }
-function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 const yc = (y) => (y >= 2018 && y <= 2026 ? `var(--y${y})` : "var(--y-other)");
 const hrs1 = (h) => `${(Math.round(h * 10) / 10).toString()} h`; // exact hours on the Now playing card
 const hrs = (h) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)} h`);
@@ -99,13 +99,20 @@ function renderAnn(state, extra) {
   if (state === "syncing") { a.classList.add("busy"); a.innerHTML = `${ICON.sync}<span>Syncing with PlayStation…</span>`; return; }
   if (state === "syncfail") { a.classList.add("bad"); a.innerHTML = `${ICON.warn}<span>Couldn't reach PlayStation. <b>Try again</b></span>`; return; }
   if (state === "expired") { a.classList.add("bad"); a.innerHTML = `${ICON.warn}<span>PlayStation sign-in expired. <b>Reconnect</b></span>`; return; }
-  if (state === "offline") { a.innerHTML = `${ICON.sync}<span>Offline · showing what you had ${ago(lastSync)}</span>`; return; }
-  a.innerHTML = `${ICON.sync}<span>${lastSync === IMPORTED_AT ? "Imported from PlayStation" : "Synced"} ${ago(lastSync)}${extra ? ` · <b>${esc(extra)}</b>` : ""}</span>`;
+  const last = link?.last_sync_at ? Date.parse(link.last_sync_at) : null;
+  if (state === "offline") { a.innerHTML = `${ICON.sync}<span>Offline · showing what you had${last ? " " + ago(last) : ""}</span>`; return; }
+  a.innerHTML = `${ICON.sync}<span>${last ? `Synced ${ago(last)}` : "Not synced yet · tap to sync"}${extra ? ` · <b>${esc(extra)}</b>` : ""}</span>`;
 }
 
+function annState() {
+  if (DEMO_STATE && DEMO_STATE !== "importing") return DEMO_STATE;
+  if (!navigator.onLine) return "offline";
+  return link?.last_sync_status === "expired" ? "expired" : link?.last_sync_status === "failed" ? "syncfail" : "idle";
+}
 function render() {
+  if (!T.length) return emptyState();
   $("#line").innerHTML = T.map(station).join("");
-  renderAnn(DEMO_STATE && DEMO_STATE !== "importing" ? DEMO_STATE : "idle");
+  renderAnn(annState(), lastExtra);
   observe();
 }
 
@@ -122,7 +129,9 @@ function observe() {
     const pad = parseFloat(getComputedStyle(cur).paddingTop) || 0; // stuck = the head has slid down inside its section
     cur.classList.toggle("stuck", cur.querySelector(".head").getBoundingClientRect().top - cur.getBoundingClientRect().top > pad + 1);
   };
-  addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(mark); } }, { passive: true });
+  observe.handler && removeEventListener("scroll", observe.handler);
+  observe.handler = () => { if (!ticking) { ticking = true; requestAnimationFrame(mark); } };
+  addEventListener("scroll", observe.handler, { passive: true });
   mark();
 }
 
@@ -134,7 +143,7 @@ function openGame(id, focusRate = false) {
   d.style.setProperty("--c", yc(g.main));
   d.innerHTML = `<div class="grab" aria-hidden="true"></div>
     <div class="g-head">${art(g, 200)}<div><h2 id="g-name">${esc(g.name)}</h2>
-      <p class="num">${hrs(g.h)} · ${g.plat} · ${fmtDate(g.first)} – ${fmtDate(g.last)}</p></div></div>
+      <p class="num">${hrs1(g.h)} · ${g.plat} · ${fmtDate(g.first)} – ${fmtDate(g.last)}</p></div></div>
     <div class="g-years">${e.years.map((x) => `<span class="l"><span class="pill" style="--pc:${yc(x.year)}">${x.year}</span>${x.label}${x.star ? `<span class="mk" role="img" aria-label="main year" style="--pc:${yc(x.year)}">${ICON.star}</span>` : ""}</span>`).join("")}</div>
     <div class="rates">
       ${starRow("o", "Overall", r.o, true)}
@@ -166,7 +175,8 @@ function wireStars(el, id) {
   const set = (v) => {
     v = Math.max(0, Math.min(5, v));
     ratings[id] = { ...(ratings[id] || {}), [k]: v || undefined };
-    save("sp.ratings", ratings); paint(el, v);
+    ratings[id] = Object.fromEntries(Object.entries(ratings[id]).filter(([, x]) => x));
+    store.saveRating(id, ratings[id]); paint(el, v);
     if (k === "o") refreshRate(id);
   };
   paint(el, ratings[id]?.[k] || 0);
@@ -208,34 +218,94 @@ function openMap() {
   d.querySelector('[aria-current="true"]')?.focus();
 }
 
-// ---------------------------------------------------------------- sync (simulated in the prototype)
-function sync() {
-  renderAnn("syncing");
-  setTimeout(() => {
-    lastSync = Date.now(); save("sp.lastSync", lastSync);
-    renderAnn("idle", "NBA 2K26 +1.2 h (demo)"); // prototype: the sync is simulated
-    const h = $("#now-h");
-    if (h) {
-      h.parentElement.querySelector(".delta")?.remove();
-      const g = byId.get($(".now .cap-t").dataset.open).game; g.h += 1.2; h.textContent = hrs1(g.h); // demo: hours tick up
-      h.insertAdjacentHTML("afterend", `<span class="delta">+1.2 h</span>`);
-      h.nextElementSibling.addEventListener("animationend", (e) => e.target.remove()); // settles into the plain hours
+// ---------------------------------------------------------------- sync
+let syncing = false;
+async function sync() {
+  if (syncing) return;
+  syncing = true; renderAnn("syncing");
+  const nowId = $(".now .cap-t")?.dataset.open, before = nowId && byId.get(nowId)?.game.h;
+  try {
+    const out = await store.syncNow();
+    if (out.status === "expired") { link = { ...link, last_sync_status: "expired" }; renderAnn("expired"); return; }
+    if (out.status !== "ok") { renderAnn("syncfail"); return; }
+    const top = [...(out.deltas ?? [])].sort((a, b) => b.delta - a.delta)[0];
+    lastExtra = top ? `${top.name} +${top.delta} h` : out.added ? `${out.added} new games` : "No new hours";
+    setLibrary(await store.fetchLibrary());
+    render();
+    const h = $("#now-h"), after = nowId && byId.get(nowId)?.game.h;
+    if (h && before != null && after - before >= 0.05) { // the hero's hours tick up, the "+x h" settles away
+      h.insertAdjacentHTML("afterend", `<span class="delta">+${Math.round((after - before) * 10) / 10} h</span>`);
+      h.nextElementSibling.addEventListener("animationend", (e) => e.target.remove());
     }
-  }, 1600);
+  } catch { renderAnn(navigator.onLine ? "syncfail" : "offline"); }
+  finally { syncing = false; }
 }
 
-// ---------------------------------------------------------------- first run
-function boot() {
-  const total = byId.size;
-  $("#line").innerHTML = `<section class="boot" style="--p:10%"><h1>Importing your games</h1>
-    <p>From PlayStation · <span class="count" id="cnt">0</span> of ${total}</p></section>`;
-  let n = 0;
-  const t = setInterval(() => {
-    n = Math.min(total, n + 9);
-    $("#cnt").textContent = n;
-    $(".boot").style.setProperty("--p", `${10 + 80 * (n / total)}%`);
-    if (n >= total) { clearInterval(t); setTimeout(render, 500); }
-  }, 60);
+// ---------------------------------------------------------------- sign-in, first import, empty
+function screen(html) { $("#line").innerHTML = `<section class="boot">${html}</section>`; }
+
+function signIn(email = "") {
+  document.body.classList.add("out");
+  screen(`<h1>Save Points</h1><p>Sign in with your email. We'll send you a sign-in link.</p>
+    <form class="form" id="f-email"><label for="em">Email</label>
+      <input id="em" type="email" autocomplete="email" inputmode="email" required value="${esc(email)}">
+      <button class="go">Send link</button><p class="err" role="alert"></p></form>`);
+  const f = $("#f-email");
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const em = $("#em").value.trim(), b = f.querySelector(".go");
+    b.disabled = true; b.textContent = "Sending…";
+    try { await store.sendCode(em); codeStep(em); }
+    catch (e) { f.querySelector(".err").textContent = e.message; b.disabled = false; b.textContent = "Send link"; }
+  };
+}
+function codeStep(email) {
+  const homeScreen = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  screen(`<h1>Check your email</h1>
+    <p>We sent a sign-in link to <b>${esc(email)}</b>.</p>
+    <p>${homeScreen ? "In Mail, <b>press and hold</b> the Sign in link, tap <b>Copy Link</b>, then paste it here." : "Click the link in the email, or copy it and paste it here."}</p>
+    <form class="form" id="f-code"><label for="cd">Sign-in link</label>
+      <input id="cd" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…" required>
+      <button class="go">Sign in</button><p class="err" role="alert"></p>
+      <button type="button" class="link" id="again">Use a different email</button></form>`);
+  $("#again").onclick = () => signIn(email);
+  const f = $("#f-code");
+  f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const b = f.querySelector(".go"); b.disabled = true; b.textContent = "Signing in…";
+    try { await store.verifyCode(email, $("#cd").value); start(); }
+    catch (e) { f.querySelector(".err").textContent = e.message; b.disabled = false; b.textContent = "Sign in"; }
+  };
+}
+function importing() {
+  screen(`<h1>Importing your games</h1><p>From PlayStation. This takes about half a minute the first time.</p>`);
+  $(".boot").style.setProperty("--p", "60%");
+}
+function emptyState() {
+  screen(`<h1>No games yet</h1><p>Connect PlayStation in Settings, or tap below to import.</p>
+    <button class="go" id="first-sync">Import from PlayStation</button>`);
+  $("#first-sync").onclick = async () => { importing(); await store.syncNow(); setLibrary(await store.fetchLibrary()); render(); };
+}
+
+// ---------------------------------------------------------------- settings
+function openMe() {
+  const d = $("#me"), end = link?.refresh_expires_at ? new Date(link.refresh_expires_at) : null;
+  const connected = !!end && link?.last_sync_status !== "expired";
+  d.innerHTML = `<div class="grab" aria-hidden="true"></div><h2 class="s-title">Settings</h2>
+    <section class="s-block"><h3>PlayStation</h3>
+      <p>${connected ? "Connected · the Mac mini renews the sign-in every morning" : "Not connected"}</p>
+      <p class="quiet">${link?.last_sync_at ? `Last sync ${ago(Date.parse(link.last_sync_at))}` : "Never synced"}</p>
+      <button class="go" data-sync-now>Sync now</button>
+      <details class="paste"><summary>Paste a new PlayStation token</summary>
+        <p class="quiet">Only needed if the Mac mini keeper can't reconnect. Open the PlayStation token page while signed in, copy everything, paste it here.</p>
+        <textarea id="npsso" rows="3" autocomplete="off" spellcheck="false" aria-label="PlayStation token"></textarea>
+        <button class="go" data-connect>Connect</button><p class="err" role="alert"></p></details>
+      ${connected ? `<button class="danger" data-disconnect>Disconnect PlayStation</button>` : ""}
+    </section>
+    <section class="s-block"><h3>Account</h3><p>${esc(user?.email ?? "")}</p>
+      <button class="link" data-signout>Sign out</button></section>
+    <button class="done" data-close>Done</button>`;
+  d.showModal();
 }
 
 // ---------------------------------------------------------------- events
@@ -250,8 +320,13 @@ document.addEventListener("click", (ev) => {
     const open = t.getAttribute("aria-expanded") !== "true";
     t.setAttribute("aria-expanded", open); document.getElementById(t.getAttribute("aria-controls")).hidden = !open; return;
   }
-  if (t.id === "ann") { if (!t.classList.contains("busy")) sync(); return; }
+  if (t.id === "ann") { if (t.classList.contains("bad") && annState() === "expired") return openMe(); if (!t.classList.contains("busy")) sync(); return; }
   if (t.id === "add") return toast("Adding a game by hand comes in a later step.");
+  if (t.id === "settings") return openMe();
+  if (t.hasAttribute("data-sync-now")) { $("#me").close(); return sync(); }
+  if (t.hasAttribute("data-connect")) return connect(t);
+  if (t.hasAttribute("data-disconnect")) return disconnect();
+  if (t.hasAttribute("data-signout")) { store.signOut().then(() => { $("#me").close(); T = []; signIn(); }); return; }
   if (t.closest("#map") && t.hash) {
     ev.preventDefault(); $("#map").close();
     const tgt = document.querySelector(t.hash), h = tgt.querySelector(".year");
@@ -265,6 +340,19 @@ document.addEventListener("click", (ev) => {
 for (const d of document.querySelectorAll("dialog"))
   d.addEventListener("click", (ev) => { if (ev.target === d) d.close(); }); // tap outside closes
 
+async function connect(btn) {
+  const err = btn.parentElement.querySelector(".err"); err.textContent = "";
+  btn.disabled = true; btn.textContent = "Connecting…";
+  const out = await store.connectPsn($("#npsso").value);
+  btn.disabled = false; btn.textContent = "Connect";
+  if (!out.connected) { err.textContent = out.error ?? "That didn't work. Try a fresh token."; return; }
+  $("#me").close(); toast("PlayStation connected"); setLibrary(await store.fetchLibrary()); sync();
+}
+async function disconnect() {
+  if (!confirm("Disconnect PlayStation? Your games and ratings stay; hours stop updating until you reconnect.")) return;
+  await store.disconnectPsn(); setLibrary(await store.fetchLibrary()); $("#me").close(); render(); toast("PlayStation disconnected");
+}
+
 function toast(msg) {
   const el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status"); el.textContent = msg;
   document.body.append(el); setTimeout(() => el.remove(), 2600);
@@ -272,8 +360,10 @@ function toast(msg) {
 
 // ---------------------------------------------------------------- start
 document.body.insertAdjacentHTML("beforeend", '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><clipPath id="half" clipPathUnits="userSpaceOnUse"><rect width="12" height="24"/></clipPath></svg>');
-fetch("data/timeline.json").then((r) => r.json()).then((data) => {
-  T = data;
+function setLibrary(lib) {
+  ratings = lib.ratings ?? {}; link = lib.link ?? null;
+  T = store.timeline(lib);
+  byId.clear();
   for (const Y of T) for (const g of Y.games) {
     const e = byId.get(g.id) || { game: g, years: [] };
     e.years.push({ year: Y.year, label: g.label, star: g.star });
@@ -281,5 +371,23 @@ fetch("data/timeline.json").then((r) => r.json()).then((data) => {
     byId.set(g.id, e);
   }
   for (const e of byId.values()) e.years.sort((a, b) => a.year - b.year);
-  DEMO_STATE === "importing" ? boot() : render();
-});
+}
+
+async function start() {
+  const c = store.cached();
+  user = await store.currentUser();
+  if (!user) return signIn();
+  document.body.classList.remove("out");
+  if (DEMO_STATE === "importing") return importing();
+  if (c) { setLibrary(c); render(); }          // instant paint from the last visit
+  else screen(`<h1>Loading your games…</h1>`);
+  try {
+    setLibrary(await store.fetchLibrary()); render(); store.flush();
+  } catch { if (!c) return screen(`<h1>Can't reach Save Points</h1><p>Check your connection and open the app again.</p>`); renderAnn("offline"); return; }
+  const last = link?.last_sync_at ? Date.parse(link.last_sync_at) : 0;
+  if (!store.demo && navigator.onLine && link?.last_sync_status !== "expired" && Date.now() - last > 6 * 3600e3) sync(); // at most every 6 h
+}
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { /* offline support is a bonus */ });
+addEventListener("online", () => { renderAnn(annState(), lastExtra); store.flush(); });
+addEventListener("offline", () => renderAnn("offline"));
+start();
