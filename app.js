@@ -323,7 +323,7 @@ function emptyState() {
 let openYear = null, statsPushed = false;
 function yearStats(Y) {
   const gs = Y.games.filter((g) => !g.tried);
-  const top = gs.reduce((b, g) => (g.yh > (b?.yh ?? -1) ? g : b), null);
+  const top = gs.filter((g) => !SERIES.test(g.name)).reduce((b, g) => (g.yh > (b?.yh ?? -1) ? g : b), null); // sports count in hours, never as top game
   const sports = Math.round(gs.filter((g) => SERIES.test(g.name)).reduce((n, g) => n + g.yh, 0));
   const fresh = gs.filter((g) => +g.first.slice(0, 4) === Y.year).sort((a, b) => a.first.localeCompare(b.first));
   return {
@@ -369,7 +369,7 @@ function renderStats() {
     <div class="split life" role="img" aria-label="All years: story ${pct(total - sports, total)} percent, sports ${pct(sports, total)} percent"><span style="flex:${total - sports}"></span><span style="flex:${sports}"></span></div>
     <p class="split-l life num"><span>Story ${(total - sports).toLocaleString()} h</span><span>Sports ${sports.toLocaleString()} h</span></p>
     <div class="wallet">${S.map(card).join("")}</div>
-    <p class="st-note">"Sports" means yearly series (NBA 2K, FIFA / EA FC, PES, Madden, WWE 2K, UFC, F1); every other game counts as story. Hours per year are estimates up to 18 Nov 2026 (split using trophy dates). From then on, every sync records them exactly.</p>`;
+    <p class="st-note">"Sports" means yearly series (NBA 2K, FIFA / EA FC, PES, Madden, WWE 2K, UFC, F1). They count in the hours but never as a year's top game. Every other game counts as story. Hours per year are estimates up to 18 Nov 2026 (split using trophy dates). From then on, every sync records them exactly.</p>`;
 }
 function showView() {
   const stats = location.hash === "#stats";
