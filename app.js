@@ -191,7 +191,7 @@ function refreshRate(id) {
 // A station is named after its landmark: the highest-rated main-year game, else the one with the most hours
 // that year, skipping yearly sports series so 2020 reads "The Witcher 3", not "NBA 2K21".
 const SERIES = /NBA 2K|FIFA|EA SPORTS FC|\bFC \d|PES|PRO EVOLUTION|eFootball|Madden|WWE 2K|UFC|F1/i;
-const short = (n) => n.split(/\s+[—–-]\s+/)[0]; // "The Witcher 3: Wild Hunt — Remastered" → "The Witcher 3: Wild Hunt"
+const short = (n) => n.split(/\s+[—–-]\s+/)[0].replace(/[:\s]+(the\s+)?(definitive|complete|ultimate|deluxe|remastered|game of the year|goty)\b.*$/i, ""); // "The Witcher 3: Wild Hunt — Remastered" → "The Witcher 3: Wild Hunt"
 function landmark(Y) {
   const main = Y.games.filter((g) => g.star && !g.tried);
   const pool = main.filter((g) => !SERIES.test(g.name));
