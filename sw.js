@@ -1,5 +1,5 @@
 // Save Points service worker: app shell offline, covers cached, data always fresh from the network.
-const VERSION = "sp-v4";                 // bump on every deploy so phones pick up changes
+const VERSION = "sp-v5";                 // bump on every deploy so phones pick up changes
 const SHELL = `${VERSION}-shell`, IMAGES = "sp-img";
 const MAX_IMAGES = 300;
 const FILES = [

@@ -9,6 +9,7 @@ const STAR = "M12 2.6l2.9 6.1 6.6.8-4.9 4.5 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6-4.9
 const ICON = {
   sync: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>',
   warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg>',
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>',
   star: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR}" fill="currentColor"/><path class="h" d="${STAR}" fill="transparent" clip-path="url(#half)"/></svg>`,
 };
@@ -111,6 +112,7 @@ function annState() {
 }
 function render() {
   if (!T.length) return emptyState();
+  if (location.hash === "#stats") showView();
   $("#line").innerHTML = T.map(station).join("");
   renderAnn(annState(), lastExtra);
   observe();
@@ -292,6 +294,69 @@ function emptyState() {
   $("#first-sync").onclick = async () => { importing(); await store.syncNow(); setLibrary(await store.fetchLibrary()); render(); };
 }
 
+// ---------------------------------------------------------------- stats (wallet: one fare card per year)
+let openYear = null, statsPushed = false;
+function yearStats(Y) {
+  const gs = Y.games.filter((g) => !g.tried);
+  const top = gs.reduce((b, g) => (g.yh > (b?.yh ?? -1) ? g : b), null);
+  const sports = Math.round(gs.filter((g) => SERIES.test(g.name)).reduce((n, g) => n + g.yh, 0));
+  const fresh = gs.filter((g) => +g.first.slice(0, 4) === Y.year).sort((a, b) => a.first.localeCompare(b.first));
+  return {
+    year: Y.year, hours: Y.hours, games: Y.count, top, sports, story: Math.max(0, Y.hours - sports),
+    first: fresh[0], last: fresh.length > 1 ? fresh[fresh.length - 1] : null,
+    back: gs.filter((g) => !g.star).length, replays: gs.filter((g) => g.label === "Replayed").length, tried: Y.tried,
+  };
+}
+const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+const day = (s) => `${+s.slice(8, 10)} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+s.slice(5, 7) - 1]}`;
+
+function renderStats() {
+  const S = T.map(yearStats);
+  if (openYear == null || !S.some((s) => s.year === openYear)) openYear = S[0]?.year;
+  const total = S.reduce((n, s) => n + s.hours, 0), sports = S.reduce((n, s) => n + s.sports, 0), games = byId.size;
+  const card = (s) => {
+    const open = s.year === openYear;
+    return `<article class="card${open ? " open" : ""}" style="--c:${yc(s.year)};view-transition-name:card-${s.year}">
+      <button class="card-head" data-card="${s.year}" aria-expanded="${open}" aria-controls="cd-${s.year}">
+        <span class="cy num">${s.year}</span><span class="cm num">${open ? `${s.games} games` : `${s.hours.toLocaleString()} h&ensp;·&ensp;${s.games} games`}</span>
+      </button>
+      <div class="card-body" id="cd-${s.year}" ${open ? "" : "hidden"}>
+        <p class="fare num">${s.hours.toLocaleString()}<small>hours</small></p>
+        ${s.top ? `<button class="trip" data-open="${s.top.id}">${art(s.top, 140)}<span><small>Top game</small>${esc(s.top.name)}<small class="num">${hrs(s.top.yh)} that year</small></span></button>` : ""}
+        <div class="split" role="img" aria-label="Story ${pct(s.story, s.hours)} percent, sports ${pct(s.sports, s.hours)} percent">
+          <span style="flex:${s.story}"></span><span style="flex:${s.sports}"></span></div>
+        <p class="split-l num"><span>Story ${pct(s.story, s.hours)}%</span><span>Sports ${pct(s.sports, s.hours)}%</span></p>
+        <dl class="moments">
+          ${s.first ? `<div><dt>First new game</dt><dd><button data-open="${s.first.id}">${esc(s.first.name)}</button><span class="when">${day(s.first.first)}</span></dd></div>` : ""}
+          ${s.last ? `<div><dt>Last new game</dt><dd><button data-open="${s.last.id}">${esc(s.last.name)}</button><span class="when">${day(s.last.first)}</span></dd></div>` : ""}
+          <div><dt>Came back to</dt><dd class="num">${s.back} game${s.back === 1 ? "" : "s"}${s.replays ? ` · ${s.replays} replayed` : ""}</dd></div>
+          <div><dt>Tried</dt><dd class="num">${s.tried} for under an hour</dd></div>
+        </dl>
+      </div></article>`;
+  };
+  $("#stats").innerHTML = `<header class="st-top"><button class="icon-btn" data-back aria-label="Back to timeline">${ICON.back}</button><h1 id="stats-title" tabindex="-1">Stats</h1></header>
+    <p class="st-sum num"><b>${total.toLocaleString()} h</b> on PlayStation since ${S.at(-1)?.year ?? ""} · ${games} games</p>
+    <div class="split life" role="img" aria-label="All years: story ${pct(total - sports, total)} percent, sports ${pct(sports, total)} percent"><span style="flex:${total - sports}"></span><span style="flex:${sports}"></span></div>
+    <p class="split-l life num"><span>Story ${(total - sports).toLocaleString()} h</span><span>Sports ${sports.toLocaleString()} h</span></p>
+    <div class="wallet">${S.map(card).join("")}</div>
+    <p class="st-note">Hours per year are estimates up to 18 Nov 2026 (split using trophy dates). From then on, every sync records them exactly.</p>`;
+}
+function showView() {
+  const stats = location.hash === "#stats";
+  document.body.classList.toggle("in-stats", stats);
+  $("#stats").hidden = !stats; $("#line").hidden = stats;
+  if (stats) { renderStats(); scrollTo(0, 0); $("#stats-title")?.focus({ preventScroll: true }); }
+}
+addEventListener("hashchange", showView);
+function openCard(year) {
+  const swap = () => {
+    openYear = year; renderStats();
+    const c = document.querySelector(`[data-card="${year}"]`);
+    c?.closest(".card").scrollIntoView({ block: "nearest" }); c?.focus({ preventScroll: true });
+  };
+  document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches ? document.startViewTransition(swap) : swap();
+}
+
 // ---------------------------------------------------------------- settings
 function openMe() {
   const d = $("#me"), end = link?.refresh_expires_at ? new Date(link.refresh_expires_at) : null;
@@ -331,6 +396,9 @@ document.addEventListener("click", (ev) => {
   if (t.id === "ann") { if (t.classList.contains("bad") && annState() === "expired") return openMe(); if (!t.classList.contains("busy")) sync(); return; }
   if (t.id === "add") return toast("Adding a game by hand comes in a later step.");
   if (t.id === "settings") return openMe();
+  if (t.id === "stats-btn") { statsPushed = true; location.hash = "stats"; return; }
+  if (t.hasAttribute("data-back")) { statsPushed ? history.back() : history.replaceState(null, "", location.pathname + location.search); statsPushed = false; showView(); return; }
+  if (t.dataset.card) return openCard(+t.dataset.card);
   if (t.hasAttribute("data-sync-now")) { $("#me").close(); return sync(); }
   if (t.hasAttribute("data-connect")) return connect(t);
   if (t.hasAttribute("data-pair")) return showPairCode(t);

@@ -233,6 +233,45 @@ input:focus-visible,textarea:focus-visible{outline:3px solid var(--y2026);outlin
 .paste[open]{display:flex;flex-direction:column;gap:8px}
 textarea{font-family:ui-monospace,monospace;font-size:13px}
 
+/* stats: the wallet */
+.in-stats .top{display:none}
+.stats{max-width:560px;margin:0 auto;padding:calc(var(--safe-top) + 12px) 18px calc(var(--safe-bottom) + 40px)}
+.stats[hidden],.line[hidden]{display:none}
+.st-top{display:flex;align-items:center;gap:12px}
+.st-top h1{font:900 34px/1 "Overpass",sans-serif;letter-spacing:-.01em}
+.st-top h1:focus{outline:none}
+.st-sum{margin-top:14px;color:var(--text-2);font-size:15px}
+.st-sum b{font:900 22px/1 "Overpass",sans-serif;color:var(--text)}
+.split{display:flex;height:8px;border-radius:99px;overflow:hidden;margin-top:12px;background:color-mix(in srgb,currentColor 18%,transparent)}
+.split span:first-child{background:currentColor}
+.split-l{display:flex;justify-content:space-between;font-size:13px;margin-top:6px}
+.life{color:var(--y2026)}.split-l.life{color:var(--text-2)}
+.wallet{margin-top:22px;display:flex;flex-direction:column}
+.card{position:relative;background:var(--c);color:var(--pill-ink);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
+.card + .card{margin-top:-16px}
+.card.open + .card{margin-top:14px}
+.card-head{display:flex;justify-content:space-between;align-items:baseline;width:100%;padding:16px 18px 20px;min-height:70px}
+.cy{font:900 30px/1 "Overpass",sans-serif}
+.card.open .cy{font-size:44px}
+.cm{font:800 17px/1 "Overpass",sans-serif}
+.card-body{padding:0 18px 18px}
+.fare{font:900 56px/.95 "Overpass",sans-serif;letter-spacing:-.01em}
+.fare small{font-size:19px;margin-left:6px}
+.trip{display:flex;gap:12px;align-items:center;margin-top:14px;width:100%;text-align:left;font-weight:700;font-size:16px;line-height:1.25}
+.trip img,.trip .ph{width:58px;height:58px;border-radius:12px;flex:none;object-fit:cover;box-shadow:var(--shadow-sm)}
+.trip small{display:block;font-size:13px;font-weight:600;opacity:.75}
+.card .split{margin-top:16px}
+.card .split-l{font-weight:600;opacity:.85}
+.moments{margin-top:16px;border-top:1px solid color-mix(in srgb,currentColor 25%,transparent)}
+.moments div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid color-mix(in srgb,currentColor 18%,transparent);font-size:14px}
+.moments div:last-child{border-bottom:0}
+.moments dt{opacity:.75;flex:none}
+.moments dd{text-align:right;font-weight:600;min-width:0}
+.moments button{font-weight:700;text-decoration:underline;text-underline-offset:3px;text-align:right}
+.moments .when{display:block;font-weight:500;font-size:13px;opacity:.75;white-space:nowrap}
+.st-note{margin-top:22px;font-size:13px;color:var(--text-3)}
+::view-transition-group(*){animation-duration:.42s;animation-timing-function:var(--ease)}
+
 @media (min-width:600px){
   .grid{grid-template-columns:repeat(4,minmax(0,1fr))}
   .tried{grid-template-columns:repeat(6,minmax(0,1fr))}
