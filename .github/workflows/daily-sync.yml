@@ -1,0 +1,21 @@
+name: Daily PSN sync
+# Every day at 04:17 Singapore time: update hours and trophies, and keep the free Supabase project awake.
+on:
+  schedule:
+    - cron: "17 20 * * *"   # 20:17 UTC = 04:17 SGT
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Sync Save Points with PlayStation
+        env:
+          SP_CRON_KEY: ${{ secrets.SP_CRON_KEY }}
+        run: |
+          out=$(curl -sS --max-time 170 -X POST \
+            -H "Content-Type: application/json" -H "x-sp-key: $SP_CRON_KEY" -d '{}' \
+            https://ztvofeqfzwkcitapopum.supabase.co/functions/v1/psn-sync)
+          echo "$out"
+          echo "$out" | grep -q '"status":"ok"' || { echo "::error::Sync did not finish cleanly"; exit 1; }
