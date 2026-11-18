@@ -154,18 +154,22 @@ Deno.serve(async (req) => {
       const manualMain = new Set((manual ?? []).filter((r) => r.is_main).map((r) => r.game_id));
       const today = new Date().toISOString().slice(0, 10);
       const rows: Record<string, unknown>[] = [];
+      const keepHours: { gid: string; year: number; h: number | undefined }[] = [];
       for (const g of redo) {
         const gid = idOf.get(g.conceptId)!;
         const entries = labelYears(g.first, g.last, per.get(gid) ?? {}, today);
         const hours = splitHours(g.hours, entries);
         for (const e of entries) {
-          if (manualYears.has(`${gid}|${e.year}`)) continue;
+          if (manualYears.has(`${gid}|${e.year}`)) { keepHours.push({ gid, year: e.year, h: hours.get(e.year) }); continue; } // label is Darren's; hours stay live
           rows.push({ game_id: gid, user_id: userId, year: e.year, label: e.label, is_main: e.isMain && !manualMain.has(gid), est_hours: hours.get(e.year), label_source: "auto" });
         }
       }
       const { error: d2 } = await admin.from("game_years").delete().in("game_id", gids).eq("label_source", "auto"); if (d2) throw d2;
       for (let i = 0; i < rows.length; i += 500) {
         const { error } = await admin.from("game_years").insert(rows.slice(i, i + 500)); if (error) throw error;
+      }
+      for (const k of keepHours) {
+        const { error } = await admin.from("game_years").update({ est_hours: k.h ?? 0 }).eq("game_id", k.gid).eq("year", k.year); if (error) throw error;
       }
     }
 

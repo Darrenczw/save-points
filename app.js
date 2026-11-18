@@ -14,6 +14,7 @@ const ICON = {
   star: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR}" fill="currentColor"/><path class="h" d="${STAR}" fill="transparent" clip-path="url(#half)"/></svg>`,
 };
 const CATS = [["s", "Story"], ["g", "Gameplay"], ["m", "Music"], ["a", "Atmosphere"]];
+const LABELS = ["Played", "Continued", "Replayed", "Brief visit"];
 
 let T = [];               // years, newest first
 const byId = new Map();   // id -> { game (any entry), years: [{year,label,star}] }
@@ -138,24 +139,48 @@ function observe() {
 }
 
 // ---------------------------------------------------------------- game sheet + ratings
-function openGame(id, focusRate = false) {
+function openGame(id, focusRate = false, edYear = null, focusSel = null) {
   const e = byId.get(id); if (!e) return;
   const g = e.game, r = ratings[id] || {};
+  const raw = store.rawGame(id);
+  const yrs = (raw?.game_years ?? e.years.map((x) => ({ year: x.year, label: x.label, removed: false })))
+    .map((x) => ({ year: x.year, label: x.label, removed: !!x.removed, star: !x.removed && x.year === g.main }))
+    .sort((a, b) => a.year - b.year);
   const d = $("#game");
+  d.dataset.id = id;
   d.style.setProperty("--c", yc(g.main));
   d.innerHTML = `<div class="grab" aria-hidden="true"></div>
     <div class="g-head">${art(g, 200)}<div><h2 id="g-name">${esc(g.name)}</h2>
       <p class="num">${hrs1(g.h)} · ${g.plat} · ${fmtDate(g.first)} – ${fmtDate(g.last)}</p></div></div>
-    <div class="g-years">${e.years.map((x) => `<span class="l"><span class="pill" style="--pc:${yc(x.year)}">${x.year}</span>${x.label}${x.star ? `<span class="mk" role="img" aria-label="main year" style="--pc:${yc(x.year)}">${ICON.star}</span>` : ""}</span>`).join("")}</div>
+    <div class="g-years" role="group" aria-label="Years played">${yrs.map((x) => `<button class="yr${x.removed ? " off" : ""}" data-yr="${x.year}" style="--pc:${yc(x.year)}" aria-expanded="${x.year === edYear}" aria-controls="yr-edit"><span class="pill">${x.year}</span>${x.removed ? "Removed" : x.label}${x.star ? `<span class="mk" role="img" aria-label="main year">${ICON.star}</span>` : ""}</button>`).join("")}</div>
+    ${edYear != null ? yearEditor(yrs.find((x) => x.year === edYear), yrs.filter((x) => !x.removed).length) : `<p class="hint">Tap a year to change its label or main year.</p>`}
     <div class="rates">
       ${starRow("o", "Overall", r.o, true)}
       ${CATS.map(([k, n]) => starRow(k, n, r[k])).join("")}
     </div>
     <p class="hint">Tap the left half of a star for a half star. Tap a category star again to clear it.</p>
+    <div class="g-acts"><button class="link" data-tried>${g.tried ? "Move out of Tried" : "Move to Tried"}</button><button class="link" data-hide>Hide game</button></div>
+    <p class="live vh" aria-live="polite"></p>
     <button class="done" data-close>Done</button>`;
-  d.showModal();
+  if (!d.open) d.showModal();
   if (focusRate) d.querySelector('[data-k="o"]').focus();
+  if (focusSel) d.querySelector(focusSel)?.focus();
   d.querySelectorAll(".stars").forEach((s) => wireStars(s, id));
+}
+function yearEditor(x, shown) {
+  if (!x) return "";
+  if (x.removed) return `<div class="yr-edit" id="yr-edit" style="--pc:${yc(x.year)}"><p>Not on your ${x.year} station.</p>
+    <div class="ye-acts"><button class="link" data-restore-yr>Put back in ${x.year}</button></div></div>`;
+  return `<div class="yr-edit" id="yr-edit" style="--pc:${yc(x.year)}" role="group" aria-label="${x.year}">
+    <div class="seg">${LABELS.map((l) => `<button data-label="${l}" aria-pressed="${l === x.label}">${l}</button>`).join("")}</div>
+    <div class="ye-acts">${x.star ? `<p class="quiet">${x.year} is the main year</p>` : `<button class="link" data-main>Make ${x.year} the main year</button>`}
+      ${shown > 1 ? `<button class="link" data-remove-yr>Take out of ${x.year}</button>` : ""}</div></div>`;
+}
+/** Apply an edit, redraw everything behind the sheet, keep the sheet where it was. */
+function doEdit(op, after) {
+  const lib = store.edit(op); if (!lib) return;
+  setLibrary(lib); render();
+  if (after) after();
 }
 function fmtDate(s) { const [y, m] = s.split("-"); return `${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+m - 1]} ${y}`; }
 function starRow(k, label, v = 0, main = false) {
@@ -380,16 +405,43 @@ function openMe() {
     <section class="s-block"><h3>Sign in another device</h3>
       <p class="quiet">Shows a 6-digit code. Type it into Save Points on your iPhone or another computer. Works once, for 5 minutes.</p>
       <div id="pair-out"></div><button class="go" data-pair>Show a code</button></section>
+    ${hiddenBlock()}
     <section class="s-block"><h3>Account</h3><p>${esc(user?.email ?? "")}</p>
       <button class="link" data-signout>Sign out</button></section>
+    <p class="live vh" aria-live="polite"></p>
     <button class="done" data-close>Done</button>`;
   d.showModal();
+}
+
+function hiddenBlock() {
+  const H = store.hiddenGames();
+  return `<section class="s-block" id="hidden-block"><h3>Hidden${H.length ? ` (${H.length})` : ""}</h3>
+    ${H.length ? `<ul class="hid">${H.map((g) => `<li><span>${esc(g.name)}</span><button class="link" data-unhide="${g.id}" aria-label="Restore ${esc(g.name)}">Restore</button></li>`).join("")}</ul>`
+      : `<p class="quiet">Nothing hidden. Hide a game from its sheet and it leaves the timeline and stats.</p>`}</section>`;
 }
 
 // ---------------------------------------------------------------- events
 document.addEventListener("click", (ev) => {
   const t = ev.target.closest("button, a"); if (!t) return;
   if (t.dataset.open) return openGame(t.dataset.open);
+  const gid = t.closest("#game")?.dataset.id;
+  if (gid && t.dataset.yr) { const y = +t.dataset.yr; return openGame(gid, false, t.getAttribute("aria-expanded") === "true" ? null : y, `[data-yr="${y}"]`); }
+  if (gid && t.dataset.label) { const y = edYearOf(); return doEdit({ k: "year", id: gid, year: y, label: t.dataset.label }, () => openGame(gid, false, y, `[data-label="${t.dataset.label}"]`)); }
+  if (gid && t.hasAttribute("data-main")) { const y = edYearOf(); return doEdit({ k: "year", id: gid, year: y, main: true }, () => { openGame(gid, false, y, `[data-yr="${y}"]`); say(`${y} is now the main year`); }); }
+  if (gid && t.hasAttribute("data-remove-yr")) { const y = edYearOf(); return doEdit({ k: "year", id: gid, year: y, removed: true }, () => { openGame(gid, false, y, "[data-restore-yr]"); say(`Taken out of ${y}`); }); }
+  if (gid && t.hasAttribute("data-restore-yr")) { const y = edYearOf(); return doEdit({ k: "year", id: gid, year: y, removed: false }, () => openGame(gid, false, y, `[data-yr="${y}"]`)); }
+  if (gid && t.hasAttribute("data-tried")) {
+    const now = !byId.get(gid).game.tried;
+    return doEdit({ k: "game", id: gid, tried: now }, () => { openGame(gid, false, null, "[data-tried]"); say(now ? "Moved to Tried" : "Moved out of Tried"); });
+  }
+  if (gid && t.hasAttribute("data-hide")) {
+    $("#game").close();
+    return doEdit({ k: "game", id: gid, hidden: true }, () => toast("Game hidden", "Undo", () => doEdit({ k: "game", id: gid, hidden: false })));
+  }
+  if (t.dataset.unhide) {
+    const id = t.dataset.unhide, name = store.rawGame(id)?.name ?? "Game";
+    return doEdit({ k: "game", id, hidden: false }, () => { $("#hidden-block").outerHTML = hiddenBlock(); ($("#hidden-block .link") ?? $("#me .done")).focus(); say(`${name} is back on your timeline`); });
+  }
   if (t.dataset.rate) return openGame(t.dataset.rate, true);
   if (t.hasAttribute("data-map")) return openMap();
   if (t.hasAttribute("data-close")) return t.closest("dialog").close();
@@ -452,9 +504,18 @@ async function disconnect() {
   await store.disconnectPsn(); setLibrary(await store.fetchLibrary()); $("#me").close(); render(); toast("PlayStation disconnected");
 }
 
-function toast(msg) {
+/** Inside an open sheet, changes show in place; this only tells screen readers. */
+function say(msg) { const el = $("dialog[open] .live"); if (el) { el.textContent = ""; requestAnimationFrame(() => (el.textContent = msg)); } else toast(msg); }
+function edYearOf() { return +$("#game [data-yr][aria-expanded=true]").dataset.yr; }
+function toast(msg, action, fn) {
+  document.querySelectorAll(".toast").forEach((x) => x.remove());
   const el = document.createElement("div"); el.className = "toast"; el.setAttribute("role", "status"); el.textContent = msg;
-  document.body.append(el); setTimeout(() => el.remove(), 2600);
+  if (action) {
+    const b = document.createElement("button"); b.textContent = action;
+    b.addEventListener("click", () => { el.remove(); fn(); }, { once: true });
+    el.append(b);
+  }
+  document.body.append(el); setTimeout(() => el.remove(), action ? 6000 : 2600);
 }
 
 // ---------------------------------------------------------------- start

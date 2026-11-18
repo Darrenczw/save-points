@@ -2,7 +2,7 @@
 // With no Supabase config (or ?demo), the app runs on data/timeline.json like the prototype.
 import { SUPABASE_URL, SUPABASE_KEY } from "./config.js";
 
-const CACHE = "sp.cache.v1", QUEUE = "sp.queue.v1";
+const CACHE = "sp.cache.v1", QUEUE = "sp.queue.v1", EDITS = "sp.edits.v1";
 const params = new URLSearchParams(location.search);
 export const demo = params.has("demo") || !SUPABASE_URL || !window.supabase;
 const sb = demo ? null : window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -46,17 +46,18 @@ export async function redeemPairCode(code) {
   if (error) ({ error } = await sb.auth.verifyOtp({ token_hash: out.tokenHash, type: "magiclink" }));
   if (error) throw new Error("That code didn't work. Make a new one and try again.");
 }
-export async function signOut() { if (sb) await sb.auth.signOut(); localStorage.removeItem(CACHE); localStorage.removeItem(QUEUE); }
+export async function signOut() { if (sb) await sb.auth.signOut(); localStorage.removeItem(CACHE); localStorage.removeItem(QUEUE); localStorage.removeItem(EDITS); }
 
 // ---------------------------------------------------------------- library
 /** Last library we saw, for an instant (and offline) first paint. */
+let current = null; // the library on screen (demo mode never touches the cache)
 export const cached = () => load(CACHE, null);
 
 /** { games: [...with game_years], ratings: {id: {o,s,g,m,a}}, link } */
 export async function fetchLibrary() {
-  if (demo) return demoLibrary();
+  if (demo) return (current = await demoLibrary());
   const [g, r, l] = await Promise.all([
-    sb.from("games").select("id, name, platforms, cover_url, hero_url, first_played, last_played, total_hours, hidden, tried_override, source, game_years(year, label, is_main, est_hours)"),
+    sb.from("games").select("id, name, platforms, cover_url, hero_url, first_played, last_played, total_hours, hidden, tried_override, source, game_years(year, label, is_main, est_hours, removed)"),
     sb.from("ratings").select("game_id, overall, story, gameplay, music, atmosphere"),
     sb.from("psn_link").select("refresh_expires_at, connected_at, last_sync_at, last_sync_status, last_sync_error").maybeSingle(),
   ]);
@@ -65,8 +66,9 @@ export async function fetchLibrary() {
   for (const x of r.data ?? []) ratings[x.game_id] = clean({ o: num(x.overall), s: x.story, g: x.gameplay, m: x.music, a: x.atmosphere });
   for (const [id, q] of Object.entries(load(QUEUE, {}))) ratings[id] = q; // unsent changes win
   const lib = { games: g.data, ratings, link: l.data ?? null, at: Date.now() };
+  for (const op of load(EDITS, [])) applyEdit(lib, op);                    // so do unsent edits
   save(CACHE, lib);
-  return lib;
+  return (current = lib);
 }
 const num = (v) => (v == null ? undefined : Number(v));
 const clean = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v != null && v !== 0));
@@ -82,7 +84,9 @@ async function demoLibrary() {
     e.game_years.push({ year: Y.year, label: g.label, is_main: g.star, est_hours: g.yh });
     by.set(g.id, e);
   }
-  return { games: [...by.values()], ratings: load("sp.ratings", {}), link: { last_sync_at: "2026-11-18T03:32:00Z", last_sync_status: "ok" }, at: Date.now() };
+  const lib = { games: [...by.values()], ratings: load("sp.ratings", {}), link: { last_sync_at: "2026-11-18T03:32:00Z", last_sync_status: "ok" }, at: Date.now() };
+  for (const op of load("sp.demo.edits", [])) applyEdit(lib, op);
+  return lib;
 }
 
 /** Turn the library into the timeline the UI draws: years newest first, each with its games. */
@@ -91,12 +95,14 @@ export function timeline(lib, today = new Date()) {
   const nowCut = today.getTime() - 14 * 86400e3, thisYear = today.getFullYear();
   for (const g of lib.games) {
     if (g.hidden) continue;
-    const mainYear = g.game_years.find((y) => y.is_main)?.year ?? +g.first_played.slice(0, 4);
+    const yrs = g.game_years.filter((y) => !y.removed);
+    if (!yrs.length) continue;
+    const mainYear = yrs.find((y) => y.is_main)?.year ?? [...yrs].sort((a, b) => b.est_hours - a.est_hours)[0].year;
     const h = Number(g.total_hours);
-    for (const y of g.game_years) {
+    for (const y of yrs) {
       const Y = years.get(y.year) ?? years.set(y.year, { year: y.year, games: [] }).get(y.year);
       Y.games.push({
-        id: g.id, name: g.name, h, yh: Number(y.est_hours), label: y.label, star: y.is_main,
+        id: g.id, name: g.name, h, yh: Number(y.est_hours), label: y.label, star: y.year === mainYear,
         tried: g.tried_override ?? h < 1, main: mainYear, first: g.first_played, last: g.last_played,
         plat: g.platforms.join("/"), now: y.year === thisYear && Date.parse(g.last_played) >= nowCut,
         cover: g.cover_url, hero: g.hero_url,
@@ -121,6 +127,7 @@ export function saveRating(id, r) {
   flush();
 }
 export function flush() {
+  flushEdits();
   if (demo || flushing || !navigator.onLine) return flushing;
   flushing = (async () => {
     const q = load(QUEUE, {});
@@ -134,7 +141,62 @@ export function flush() {
   })().finally(() => { flushing = null; });
   return flushing;
 }
-addEventListener("online", () => flush());
+addEventListener("online", () => { flush(); flushEdits(); });
+
+// ---------------------------------------------------------------- edits: year labels, ★, remove from a year, hide, Tried
+// op = { k: "year", id, year, label?, main?, removed? } | { k: "game", id, hidden?, tried? }   (tried: true | false)
+function applyEdit(lib, op) {
+  const g = lib.games.find((x) => x.id === op.id); if (!g) return;
+  if (op.k === "game") {
+    if ("hidden" in op) g.hidden = op.hidden;
+    if ("tried" in op) g.tried_override = op.tried;
+    return;
+  }
+  const y = g.game_years.find((x) => x.year === op.year); if (!y) return;
+  if (op.label) y.label = op.label;
+  if ("removed" in op) y.removed = op.removed;
+  if (op.main) for (const x of g.game_years) x.is_main = x === y;
+  y.label_source = "manual";
+}
+/** The raw game record (includes hidden games and removed years). */
+export const rawGame = (id) => (current ?? cached())?.games.find((g) => g.id === id) ?? null;
+export const hiddenGames = () => ((current ?? cached())?.games ?? []).filter((g) => g.hidden).sort((a, b) => a.name.localeCompare(b.name));
+/** Apply an edit now (screen + cache), queue it for the server. Returns the updated library. */
+export function edit(op) {
+  const lib = current ?? cached(); if (!lib) return null;
+  applyEdit(lib, op);
+  if (demo) { const q = load("sp.demo.edits", []); q.push(op); save("sp.demo.edits", q); return lib; }
+  save(CACHE, lib);
+  const q = load(EDITS, []); q.push(op); save(EDITS, q);
+  flushEdits();
+  return lib;
+}
+let sendingEdits = null;
+function flushEdits() {
+  if (demo || sendingEdits || !navigator.onLine) return sendingEdits;
+  sendingEdits = (async () => {
+    for (;;) {
+      const [op] = load(EDITS, []); if (!op) break;
+      if (!(await sendEdit(op))) break;                              // try again later
+      const q = load(EDITS, []); if (JSON.stringify(q[0]) === JSON.stringify(op)) { q.shift(); save(EDITS, q); }
+    }
+  })().finally(() => { sendingEdits = null; });
+  return sendingEdits;
+}
+async function sendEdit(op) {
+  if (op.k === "game") {
+    const patch = {};
+    if ("hidden" in op) patch.hidden = op.hidden;
+    if ("tried" in op) patch.tried_override = op.tried;
+    return !(await sb.from("games").update(patch).eq("id", op.id)).error;
+  }
+  if (op.main) { const { error } = await sb.from("game_years").update({ is_main: false }).eq("game_id", op.id).neq("year", op.year); if (error) return false; }
+  const patch = { label_source: "manual" };
+  if (op.label) patch.label = op.label;
+  if ("removed" in op) patch.removed = op.removed;
+  if (op.main) patch.is_main = true;
+  return !(await sb.from("game_years").update(patch).eq("game_id", op.id).eq("year", op.year)).error;
+}
 
 // ---------------------------------------------------------------- PSN sync + connection
 async function call(fn, body) {
