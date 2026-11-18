@@ -43,7 +43,7 @@
     --shadow-sm:0 5px 14px rgba(24,32,64,.13);
     --now:#f0a12b; --now-ink:#2a1700;
     --go:#188354; --go-ink:#ffffff;
-    --warn:#d23b30;
+    --warn:#c8342a;
     --y2026:#2f5fe0;--y2025:#7b4fd6;--y2024:#108463;--y2023:#cb4338;--y2022:#8b7305;
     --y2021:#1478b8;--y2020:#c83f86;--y2019:#3f8424;--y2018:#936d3d;--y-other:#6b7491;
     --pill-ink:#ffffff;
@@ -167,6 +167,8 @@ dialog::backdrop{background:rgba(4,6,14,.55)}
 .g-head p{font-size:14px;color:var(--text-2);margin-top:3px}
 .g-years{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 4px}
 .g-years .pill{font-size:13px}
+.g-years .mk{display:inline-flex;color:var(--pc)}
+.g-years .mk svg{width:14px;height:14px}
 .g-years span.l{font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:6px}
 .r-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-top:1px solid var(--rule)}
 .r-row:first-of-type{border-top:0}

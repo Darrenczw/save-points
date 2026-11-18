@@ -135,7 +135,7 @@ function openGame(id, focusRate = false) {
   d.innerHTML = `<div class="grab" aria-hidden="true"></div>
     <div class="g-head">${art(g, 200)}<div><h2 id="g-name">${esc(g.name)}</h2>
       <p class="num">${hrs(g.h)} · ${g.plat} · ${fmtDate(g.first)} – ${fmtDate(g.last)}</p></div></div>
-    <div class="g-years">${e.years.map((x) => `<span class="l"><span class="pill" style="--pc:${yc(x.year)}">${x.year}</span>${x.label}${x.star ? ' <span aria-label="main year">★</span>' : ""}</span>`).join("")}</div>
+    <div class="g-years">${e.years.map((x) => `<span class="l"><span class="pill" style="--pc:${yc(x.year)}">${x.year}</span>${x.label}${x.star ? `<span class="mk" role="img" aria-label="main year" style="--pc:${yc(x.year)}">${ICON.star}</span>` : ""}</span>`).join("")}</div>
     <div class="rates">
       ${starRow("o", "Overall", r.o, true)}
       ${CATS.map(([k, n]) => starRow(k, n, r[k])).join("")}
